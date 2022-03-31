@@ -4,6 +4,7 @@ import (
 	// "github.com/gorilla/websocket"
 
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 
@@ -39,9 +40,9 @@ var broadcastChannel = make(chan broadcastMsg)
 func broadcaster() {
 	for {
 		msg := <-broadcastChannel
-
-		for _, client := range Allrooms.Map[msg.RoomID] {
+		for idx, client := range Allrooms.Map[msg.RoomID] {
 			if client.conn != msg.client {
+				fmt.Printf("sent a message for %d\n", idx)
 				err := client.conn.WriteJSON(msg.Message)
 				if err != nil {
 					log.Fatal(err)

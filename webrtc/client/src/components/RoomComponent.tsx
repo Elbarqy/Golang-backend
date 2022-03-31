@@ -8,7 +8,7 @@ const RoomComponent = () => {
     let userStream: MediaStream;
     const partnerStream = useRef()
     let peer: RTCPeerConnection;
-    const webSocketRef = new WebSocket(`ws://localhost:8080/join?roomID=${roomID}`)
+    let webSocketRef: WebSocket;
     const openCamera = async () => {
         const allDevices = await navigator.mediaDevices.enumerateDevices()
         const cameras = allDevices.filter((device) => device.kind == "videoinput")
@@ -27,15 +27,14 @@ const RoomComponent = () => {
             if (stream != undefined) {
                 userVideo.current!.srcObject = stream
                 userStream = stream;
-                callUser();
             }
+            webSocketRef = new WebSocket(`ws://localhost:8080/join?roomID=${roomID}`);
             webSocketRef.addEventListener("open", (e) => {
                 webSocketRef.send(JSON.stringify({ join: true }))
             })
             webSocketRef.addEventListener("message", async (e) => {
                 const message = JSON.parse(e.data)
                 if (message.join) {
-                    console.log(message)
                     callUser()
                 }
 
@@ -44,21 +43,34 @@ const RoomComponent = () => {
                     try {
                         await peer.addIceCandidate(message.iceCandidate)
                     } catch (e) {
-                        console.log(e)
+                        console.log("ICE CANDIDATE ERROR", e)
                     }
                 }
 
                 if (message.offer) {
                     handleOffer(message.offer)
                 }
+
+                if (message.answer) {
+                    console.log("Receiving Answer");
+                    try {
+                        await peer.setRemoteDescription(new RTCSessionDescription(message.answer))
+                    } catch (e) {
+                        console.log("While recieving answer", e)
+                    }
+                }
             })
         })
     }, [])
 
     const handleOffer = async (offer: any) => {
+        console.log("Recieved Offer, Creating answer", peer)
         peer = createPeer()
-        await peer.setRemoteDescription(new RTCSessionDescription(offer))
-
+        try {
+            await peer.setRemoteDescription(new RTCSessionDescription(offer))
+        } catch (e) {
+            console.log("Error setting remote", e)
+        }
         userStream.getTracks().forEach((track) => {
             peer.addTrack(track, userStream)
         })
@@ -70,9 +82,7 @@ const RoomComponent = () => {
 
     const callUser = () => {
         console.log("calling user")
-        if (!peer) {
-            peer = createPeer()
-        }
+        peer = createPeer()
         userStream.getTracks().forEach((track) => {
             peer.addTrack(track, userStream)
         })
@@ -86,7 +96,6 @@ const RoomComponent = () => {
         peer.onnegotiationneeded = handleNegotiation
         peer.onicecandidate = handleIceCandidate
         peer.ontrack = handleTrackEvent
-
         return peer
     }
 
@@ -97,13 +106,14 @@ const RoomComponent = () => {
             await peer.setLocalDescription(myOffer)
             webSocketRef.send(JSON.stringify({ offer: peer.localDescription }))
         } catch (e) {
-            console.log(e)
+            console.log("Error setting offer as local", e)
         }
     }
 
     const handleIceCandidate = (event: RTCPeerConnectionIceEvent) => {
         console.log("Found Ice Candidate")
         if (event.candidate) {
+            console.log("sending the ice candidate")
             webSocketRef.send(JSON.stringify({ iceCandidate: event.candidate }))
         }
     }
@@ -111,6 +121,7 @@ const RoomComponent = () => {
     const handleTrackEvent = (event: RTCTrackEvent) => {
         console.log("Recieving tracks")
         partnerVideo.current!.srcObject = event.streams[0]
+
     }
 
     return <div>
